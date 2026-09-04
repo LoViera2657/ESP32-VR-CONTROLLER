@@ -8,11 +8,11 @@ void setup(){
     delay(2000);
     Wire.begin(21, 22);  //SDA e SCL
 
-    Serial.println("Iniciando o MPU6050....");
+    Serial.println("Iniciando o MPU6050...");
     mpu.initialize();
 
     if(mpu.testConnection()){
-        Serial.println("MPU6050 conectado com sucesso!!");
+        Serial.println("MPU6050 conectado com sucesso!");
     }
     else{
         Serial.println("Erro ao conectar ao MPU6050");
@@ -27,6 +27,8 @@ void loop(){
 
     mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
     
+    Serial.print("\033[2J\033[H");
+
     Serial.print("Aceleracao (X, Y, Z): ");
     Serial.print(ax); Serial.print(", ");
     Serial.print(ay); Serial.print(", ");
@@ -36,6 +38,6 @@ void loop(){
     Serial.print(gy); Serial.print(", ");
     Serial.println(gz);
     
-    
-    delay(500);
+
+    delay(100);
 }
