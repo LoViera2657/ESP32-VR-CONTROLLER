@@ -23,6 +23,19 @@ const float FATOR_GIRO = 1.0f / 32.8f;
 
 
 // ============================================================
+// BOTAO RECENTER
+// ============================================================
+
+const int PIN_RECENTER = 25;
+
+bool estadoAnteriorRecenter = HIGH;
+
+unsigned long ultimoRecenter = 0;
+
+const unsigned long DEBOUNCE_RECENTER = 50;
+
+
+// ============================================================
 // CALIBRACAO DO ACELEROMETRO
 // ============================================================
 
@@ -46,18 +59,6 @@ const float GANHO_AZ  = 0.9813f;
 float biasGx = 0.0f;
 float biasGy = 0.0f;
 float biasGz = 0.0f;
-
-
-// ============================================================
-// FILTRO COMPLEMENTAR
-// Mantido temporariamente para comparacao com Madgwick
-// ============================================================
-
-float rollFiltro  = 0.0f;
-float pitchFiltro = 0.0f;
-float yawGyro     = 0.0f;
-
-bool filtroInicializado = false;
 
 
 // ============================================================
@@ -85,25 +86,11 @@ unsigned long tempoAnterior = 0;
 
 
 // ============================================================
-// FUNCOES AUXILIARES
+// NORMALIZACAO DO QUATERNION
 // ============================================================
 
-float normalizarAngulo(float angulo) {
-
-    while (angulo > 180.0f) {
-        angulo -= 360.0f;
-    }
-
-    while (angulo < -180.0f) {
-        angulo += 360.0f;
-    }
-
-    return angulo;
-}
-
-
-void normalizarQuaternion() {
-
+void normalizarQuaternion()
+{
     float norma = sqrt(
         q0 * q0 +
         q1 * q1 +
@@ -111,7 +98,8 @@ void normalizarQuaternion() {
         q3 * q3
     );
 
-    if (norma > 0.0f) {
+    if (norma > 0.0f)
+    {
         q0 /= norma;
         q1 /= norma;
         q2 /= norma;
@@ -124,8 +112,8 @@ void normalizarQuaternion() {
 // CALIBRACAO DO GIROSCOPIO
 // ============================================================
 
-void calibrarGiroscopio() {
-
+void calibrarGiroscopio()
+{
     const int N = 1000;
 
     long somaGx = 0;
@@ -137,8 +125,8 @@ void calibrarGiroscopio() {
 
     Serial.println("Calibrando giroscopio...");
 
-    for (int i = 0; i < N; i++) {
-
+    for (int i = 0; i < N; i++)
+    {
         int16_t ax, ay, az;
         int16_t gx, gy, gz;
 
@@ -182,8 +170,11 @@ void calibrarGiroscopio() {
 // Yaw inicia em zero porque o MPU6050 nao possui magnetometro.
 // ============================================================
 
-void inicializarQuaternion(float rollGraus, float pitchGraus) {
-
+void inicializarQuaternion(
+    float rollGraus,
+    float pitchGraus
+)
+{
     float roll  = rollGraus  * DEG_TO_RAD;
     float pitch = pitchGraus * DEG_TO_RAD;
     float yaw   = 0.0f;
@@ -222,8 +213,8 @@ void inicializarQuaternion(float rollGraus, float pitchGraus) {
 // ============================================================
 // MADGWICK
 //
-// Se o acelerometro estiver pouco confiavel durante movimentos
-// fortes, o quaternion continua sendo atualizado somente pelo gyro.
+// Durante aceleracoes fortes, se o acelerometro nao for
+// considerado confiavel, usa somente o giroscopio.
 // ============================================================
 
 void atualizarMadgwick(
@@ -235,11 +226,11 @@ void atualizarMadgwick(
     float az,
     float dt,
     bool accelConfiavel
-) {
-
+)
+{
     const float BETA = 0.08f;
 
-    // Madgwick trabalha com velocidade angular em rad/s
+    // Madgwick usa rad/s
     gx *= DEG_TO_RAD;
     gy *= DEG_TO_RAD;
     gz *= DEG_TO_RAD;
@@ -249,19 +240,19 @@ void atualizarMadgwick(
     // MODO GYRO-ONLY
     // --------------------------------------------------------
 
-    if (!accelConfiavel) {
-
+    if (!accelConfiavel)
+    {
         float qDot0 =
             0.5f * (-q1 * gx - q2 * gy - q3 * gz);
 
         float qDot1 =
-            0.5f * ( q0 * gx + q2 * gz - q3 * gy);
+            0.5f * (q0 * gx + q2 * gz - q3 * gy);
 
         float qDot2 =
-            0.5f * ( q0 * gy - q1 * gz + q3 * gx);
+            0.5f * (q0 * gy - q1 * gz + q3 * gx);
 
         float qDot3 =
-            0.5f * ( q0 * gz + q1 * gy - q2 * gx);
+            0.5f * (q0 * gz + q1 * gy - q2 * gx);
 
         q0 += qDot0 * dt;
         q1 += qDot1 * dt;
@@ -284,7 +275,8 @@ void atualizarMadgwick(
         az * az
     );
 
-    if (normaAcel <= 0.0f) {
+    if (normaAcel <= 0.0f)
+    {
         return;
     }
 
@@ -359,7 +351,8 @@ void atualizarMadgwick(
         s3 * s3
     );
 
-    if (normaGradiente > 0.0f) {
+    if (normaGradiente > 0.0f)
+    {
         s0 /= normaGradiente;
         s1 /= normaGradiente;
         s2 /= normaGradiente;
@@ -405,9 +398,15 @@ void atualizarMadgwick(
 // SETUP
 // ============================================================
 
-void setup() {
-
+void setup()
+{
     Serial.begin(115200);
+
+    pinMode(
+        PIN_RECENTER,
+        INPUT_PULLUP
+    );
+
     delay(3000);
 
     Wire.begin(21, 22);
@@ -416,20 +415,26 @@ void setup() {
 
     mpu.initialize();
 
-    if (!mpu.testConnection()) {
-
+    if (!mpu.testConnection())
+    {
         Serial.println("Erro ao conectar ao MPU6050");
 
-        while (true) {
+        while (true)
+        {
             delay(1000);
         }
     }
 
     Serial.println("MPU6050 conectado com sucesso!");
 
-    // Configuracoes adequadas para movimentos rapidos de casting
-    mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_1000);
-    mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_4);
+    // Configuracoes adequadas para casting rapido
+    mpu.setFullScaleGyroRange(
+        MPU6050_GYRO_FS_1000
+    );
+
+    mpu.setFullScaleAccelRange(
+        MPU6050_ACCEL_FS_4
+    );
 
     calibrarGiroscopio();
 
@@ -441,8 +446,8 @@ void setup() {
 // LOOP
 // ============================================================
 
-void loop() {
-
+void loop()
+{
     // --------------------------------------------------------
     // 1. LEITURA RAW
     // --------------------------------------------------------
@@ -470,9 +475,14 @@ void loop() {
         (az - OFFSET_AZ) * GANHO_AZ;
 
 
-    float ax_ms2 = axCorrigido * FATOR_ACEL;
-    float ay_ms2 = ayCorrigido * FATOR_ACEL;
-    float az_ms2 = azCorrigido * FATOR_ACEL;
+    float ax_ms2 =
+        axCorrigido * FATOR_ACEL;
+
+    float ay_ms2 =
+        ayCorrigido * FATOR_ACEL;
+
+    float az_ms2 =
+        azCorrigido * FATOR_ACEL;
 
 
     // --------------------------------------------------------
@@ -493,12 +503,15 @@ void loop() {
     // 4. DELTA DE TEMPO
     // --------------------------------------------------------
 
-    unsigned long tempoAtual = micros();
+    unsigned long tempoAtual =
+        micros();
 
     float dt =
-        (tempoAtual - tempoAnterior) / 1000000.0f;
+        (tempoAtual - tempoAnterior)
+        / 1000000.0f;
 
-    tempoAnterior = tempoAtual;
+    tempoAnterior =
+        tempoAtual;
 
 
     // --------------------------------------------------------
@@ -517,12 +530,14 @@ void loop() {
 
 
     // --------------------------------------------------------
-    // 6. ROLL E PITCH PELO ACELEROMETRO
+    // 6. ROLL E PITCH INICIAIS PELA GRAVIDADE
     // --------------------------------------------------------
 
     float rollAcc =
-        atan2(ay_ms2, az_ms2)
-        * RAD_TO_DEG;
+        atan2(
+            ay_ms2,
+            az_ms2
+        ) * RAD_TO_DEG;
 
     float pitchAcc =
         atan2(
@@ -531,16 +546,18 @@ void loop() {
                 ay_ms2 * ay_ms2 +
                 az_ms2 * az_ms2
             )
-        )
-        * RAD_TO_DEG;
+        ) * RAD_TO_DEG;
 
 
     // --------------------------------------------------------
     // 7. INICIALIZACAO DO QUATERNION
     // --------------------------------------------------------
 
-    if (!quaternionInicializado && accelConfiavel) {
-
+    if (
+        !quaternionInicializado &&
+        accelConfiavel
+    )
+    {
         inicializarQuaternion(
             rollAcc,
             pitchAcc
@@ -552,8 +569,8 @@ void loop() {
     // 8. MADGWICK
     // --------------------------------------------------------
 
-    if (quaternionInicializado) {
-
+    if (quaternionInicializado)
+    {
         atualizarMadgwick(
             gx_dps,
             gy_dps,
@@ -570,160 +587,33 @@ void loop() {
 
 
     // --------------------------------------------------------
-    // 9. QUATERNION -> EULER
-    //
-    // Apenas para debug/comparacao.
-    // O VR usara diretamente o quaternion.
+    // 9. RECENTER
     // --------------------------------------------------------
 
-    float rollQuat = atan2(
-        2.0f * (q0 * q1 + q2 * q3),
-        1.0f - 2.0f * (q1 * q1 + q2 * q2)
-    ) * RAD_TO_DEG;
+    bool estadoRecenter =
+        digitalRead(PIN_RECENTER);
 
+    if (
+        estadoAnteriorRecenter == HIGH &&
+        estadoRecenter == LOW &&
+        millis() - ultimoRecenter >
+            DEBOUNCE_RECENTER
+    )
+    {
+        Serial.println("R");
 
-    float valorPitch =
-        2.0f * (q0 * q2 - q3 * q1);
-
-    valorPitch =
-        constrain(valorPitch, -1.0f, 1.0f);
-
-
-    float pitchQuat =
-        asin(valorPitch) * RAD_TO_DEG;
-
-
-    float yawQuat = atan2(
-        2.0f * (q0 * q3 + q1 * q2),
-        1.0f - 2.0f * (q2 * q2 + q3 * q3)
-    ) * RAD_TO_DEG;
-
-
-    // --------------------------------------------------------
-    // 10. FILTRO COMPLEMENTAR
-    //
-    // Mantido apenas enquanto comparamos com Madgwick.
-    // --------------------------------------------------------
-
-    if (!filtroInicializado) {
-
-        rollFiltro  = rollAcc;
-        pitchFiltro = pitchAcc;
-        yawGyro     = 0.0f;
-
-        filtroInicializado = true;
+        ultimoRecenter =
+            millis();
     }
 
-
-    const float TAU = 0.5f;
-
-    float alpha =
-        TAU / (TAU + dt);
-
-
-    float rollPrevisto =
-        rollFiltro + gx_dps * dt;
-
-    float pitchPrevisto =
-        pitchFiltro + gy_dps * dt;
-
-
-    if (accelConfiavel) {
-
-        float erroRoll =
-            normalizarAngulo(
-                rollAcc - rollPrevisto
-            );
-
-        rollFiltro =
-            normalizarAngulo(
-                rollPrevisto +
-                (1.0f - alpha) * erroRoll
-            );
-
-        pitchFiltro =
-            alpha * pitchPrevisto +
-            (1.0f - alpha) * pitchAcc;
-    }
-    else {
-
-        rollFiltro =
-            normalizarAngulo(rollPrevisto);
-
-        pitchFiltro =
-            pitchPrevisto;
-    }
-
-
-    yawGyro += gz_dps * dt;
-
-    yawGyro =
-        normalizarAngulo(yawGyro);
+    estadoAnteriorRecenter =
+        estadoRecenter;
 
 
     // --------------------------------------------------------
-    // 11. DEBUG
+    // 10. ENVIO SERIAL
     // --------------------------------------------------------
 
-    float normaQuat = sqrt(
-        q0 * q0 +
-        q1 * q1 +
-        q2 * q2 +
-        q3 * q3
-    );
-
-/*
-    Serial.print("Roll ACC: ");
-    Serial.print(rollAcc);
-
-    Serial.print(" | Roll filtro: ");
-    Serial.print(rollFiltro);
-
-    Serial.print(" | Pitch ACC: ");
-    Serial.print(pitchAcc);
-
-    Serial.print(" | Pitch filtro: ");
-    Serial.print(pitchFiltro);
-
-    Serial.print(" | Yaw gyro: ");
-    Serial.print(yawGyro);
-
-
-    Serial.print(" | |A|: ");
-    Serial.print(moduloAcel);
-
-    Serial.print(" | ACC_OK: ");
-    Serial.print(accelConfiavel);
-
-
-    Serial.print(" | Q: ");
-
-    Serial.print(q0, 4);
-    Serial.print(", ");
-
-    Serial.print(q1, 4);
-    Serial.print(", ");
-
-    Serial.print(q2, 4);
-    Serial.print(", ");
-
-    Serial.print(q3, 4);
-
-
-    Serial.print(" | |Q|: ");
-    Serial.print(normaQuat, 4);
-
-
-    Serial.print(" | Euler Q: ");
-
-    Serial.print(rollQuat);
-    Serial.print(", ");
-
-    Serial.print(pitchQuat);
-    Serial.print(", ");
-
-    Serial.println(yawQuat);
-*/
     Serial.print("Q,");
     Serial.print(q0, 6);
     Serial.print(",");
@@ -732,6 +622,7 @@ void loop() {
     Serial.print(q2, 6);
     Serial.print(",");
     Serial.println(q3, 6);
+
 
     delay(10);
 }
